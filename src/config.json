@@ -1,0 +1,24 @@
+{
+  "constant": {
+    "currency_type": "SWT",
+    "tran_perfix": "JT",
+    "trust_limit": "1",
+    "sign_perfix": "Jingtum2016",
+
+    "issue_custom_tum": "IssueTum",
+    "query_issue": "QueryIssue",
+    "query_custom_tum": "QueryTum"
+  },
+  "dev": {
+    "api_address": "https://tapi.jingtum.com:443", 
+    "web_socket_address": "wss://tapi.jingtum.com:5443", 
+    "api_version": "v1",
+    "ttong_address": "http://tfingate.jingtum.com/v1/business/node"
+  },
+  "prod": {
+    "api_address": "https://tapi.jingtum.com:443", 
+    "web_socket_address": "wss://tapi.jingtum.com:5443", 
+    "api_version": "v2",
+    "ttong_address": "http://fingate.jingtum.com/v1/business/node"
+  }
+}
