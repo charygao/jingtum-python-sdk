@@ -1,39 +1,43 @@
 # -*- coding:utf-8 -*-
 import sys 
 import time
+import json
 sys.path.append("../")
 
-from jingtumsdk.server import APIServer, WebSocketServer, TTongServer, Server
+from jingtumsdk.server import APIServer, WebSocketServer, TumServer, Server
 from jingtumsdk.account import Wallet, FinGate
 from jingtumsdk.logger import logger
-from jingtumsdk.operation import SubmitPayment, CreateOrder, AddRelation, AddTrustLine, \
-    CancelOrder, RemoveRelation, RemoveTrustLine
+from jingtumsdk.operation import PaymentOperation, OrderOperation, CancelOrderOperation
 
-# Please note the following addresses are only for Jingtum test network and they 
-# do not work with Jingtum network.
-# root account used for test
-test_address = ""
-test_secret = ""
 
-//One example issuer in Jingtum test network.
+def get_cfg_from_json(file_name="test_data.json"):
+    f = open(file_name)
+    ff = f.read()
+    cfg_data = json.loads(ff)
+    f.close()
+    return cfg_data
+
+cfg_data = get_cfg_from_json()
+
+# root account just for test
+test_address = str(cfg_data["DEV"]["fingate1"]["address"])
+test_secret = str(cfg_data["DEV"]["fingate1"]["secret"])
 test_issuer = "jBciDE8Q3uJjf111VeiUNM775AMKHEbBLS"
 
-# Account with enough balances used for test
-# user can get these accounts by contacting Jingtum developing center.
-test_ulimit_address = "" 
-test_ulimit_secret = "" 
+# ulimit account just for test
+test_ulimit_address = str(cfg_data["DEV"]["fingate1"]["address"])
+test_ulimit_secret = str(cfg_data["DEV"]["fingate1"]["secret"])
 
-# Fingate account used for issuing Tum test
-# Need to get these information from Jingtum FinGate websites
-# fingate.jingtum.com or tfingate.jingtum.com
-ekey = ""
-custom = ""
-test_currency = ""
+# tongtong account just for test
+ekey = str(cfg_data["DEV"]["fingate1"]["sign_key"])
+custom = str(cfg_data["DEV"]["fingate1"]["custom_id"])
+test_currency = str(cfg_data["DEV"]["fingate1"]["tum1"])
 
 # init FinGate
 fingate = FinGate()
+fingate.setTest(True)
 
-tongtong testing
+#tongtong testing
 fingate.setConfig(custom, ekey)
 order = fingate.getNextUUID()
 ret = fingate.issueCustomTum(order, test_currency, "123.45", test_ulimit_address)
@@ -48,6 +52,9 @@ logger.info("queryCustomTum:" + str(fingate.queryIssue(order)))
 master_wallet = Wallet(test_address, test_secret)
 master_unlimit_wallet = Wallet(test_ulimit_address, test_ulimit_secret)
 
+# print "master_wallet..............", master_wallet.getBalance()
+# print "master_unlimit_wallet......", master_unlimit_wallet.getBalance()
+
 # create my wallet
 my_wallet = None
 ret = fingate.createWallet()
@@ -61,13 +68,10 @@ if ret.has_key("success") and ret["success"]:
 ws = WebSocketServer()
 ws.subscribe(my_address, my_secret)
 
-# active wallet
-fingate.setActivateAmount(1000)
-sp = SubmitPayment(test_address)
-sp.addAmount("SWT", fingate.getActivateAmount())
-sp.addDestAddress(my_address)
-sp.addSrcSecret(test_secret)
-logger.info(sp.submit())
+
+fingate.setActivateAmount(25)
+logger.info(fingate.activeWallet(test_address, test_secret, my_address, "SWT"))
+
 
 class WalletTest(Wallet):
     def __init__(self, address, secret):
@@ -129,8 +133,8 @@ ws.setTxHandler(my_wallet.on_ws_receive)
 while 1:
     if my_wallet and my_wallet.isActivated:
         if my_wallet.get_wallet_status() == 1: # USD payment, from ulimit wallet to my wallet
-            usd = SubmitPayment(test_ulimit_address)
-            usd.addAmount("CNY", 100, test_issuer)
+            usd = PaymentOperation(test_ulimit_address)
+            usd.addAmount("USD", 1, test_issuer)
             usd.addDestAddress(my_address)
             usd.addSrcSecret(test_ulimit_secret)
             ret = usd.submit()
@@ -145,12 +149,12 @@ while 1:
             my_wallet.set_wallet_status(4)
         elif my_wallet.get_wallet_status() == 4:
             r = my_wallet.getPathList(my_wallet.address, 
-                "1.00", "CNY", issuer=test_issuer)
+                "1.00", "USD", issuer=test_issuer)
             logger.info("get_paths test:" + str(r))
             
             # create order
-            co = CreateOrder(my_wallet.getAddress())
-            co.setTakePays("CNY", 20, test_issuer)
+            co = OrderOperation(my_wallet.getAddress())
+            co.setTakePays("USD", 1, test_issuer)
             co.setTakeGets("SWT", 10)
             co.addSrcSecret(my_wallet.getSecret())
             co.submit()
@@ -161,7 +165,7 @@ while 1:
             logger.info("get_account_orders test:" + str(r))
 
             # cancel order
-            co = CancelOrder(my_wallet.getAddress())
+            co = CancelOrderOperation(my_wallet.getAddress())
             co.setOrderNum(1)
             co.addSrcSecret(my_wallet.getSecret())
             r = co.submit()
@@ -179,71 +183,6 @@ while 1:
             r = my_wallet.getTransactionList(destination_account=my_wallet.getAddress())
             logger.info("order_transaction_history test:" + str(r))
             my_wallet.set_wallet_status(10)
-        elif my_wallet.get_wallet_status() == 10:
-            # add relation
-            ar = AddRelation(my_wallet.getAddress())
-            ar.addAmount("CNY", 5, test_issuer)
-            ar.setRelationType("authorize")
-            ar.setCounterparty(test_address)
-            ar.addSrcSecret(my_wallet.getSecret())
-            r = ar.submit()
-
-            logger.info("add_relations test:" + str(r))
-            time.sleep(8)
-            try:
-                r = my_wallet.getRelationList(relations_type="authorize", counterparty=test_address, 
-                    currency="USD+"+test_issuer)
-                #r = my_wallet.getRelationList()
-                logger.info("get_relations test:" + str(r))
-            except Exception, e:
-                logger.error("get_relations:" + str(e)) 
-            my_wallet.set_wallet_status(11)
-        elif my_wallet.get_wallet_status() == 11:
-            try:
-                r = my_wallet.getCoRelationList(test_address, test_secret, "authorize", "USD+"+test_issuer)
-                #r = my_wallet.getCoRelationList(test_address, test_secret)
-                logger.info("get_counter_relations test:" + str(r))
-            except Exception, e:
-                logger.error("get_counter_relations:" + str(e)) 
-            try:
-                # remove relation
-                rr = RemoveRelation(my_wallet.getAddress())
-                rr.addAmount("CNY", 5, test_issuer)
-                rr.setRelationType("authorize")
-                rr.setCounterparty(test_address)
-                rr.addSrcSecret(my_wallet.getSecret())
-                r = rr.submit()
-                logger.info("delete_relations test:" + str(r))
-            except Exception, e:
-                logger.error("delete_relations:" + str(e)) 
-            my_wallet.set_wallet_status(12)
-        elif my_wallet.get_wallet_status() == 12:
-            # add trustline
-            ot = AddTrustLine(my_wallet.getAddress())
-            ot.setCounterparty(test_ulimit_address)
-            ot.setCurrency("CNY")
-            ot.setLimit(200)
-            ot.addSrcSecret(my_wallet.getSecret())
-            r = ot.submit()
-
-            logger.info("add_trustline test:" + str(r))
-            my_wallet.set_wallet_status(13)
-        elif my_wallet.get_wallet_status() == 14:
-            r = my_wallet.getTrustLineList()
-            logger.info("get_trustlines test:" + str(r)) 
-            my_wallet.set_wallet_status(15)
-        elif my_wallet.get_wallet_status() == 15:
-            try:
-                # remove trustline
-                ot = RemoveTrustLine(my_wallet.getAddress())
-                ot.setCounterparty(test_ulimit_address)
-                ot.setCurrency("CNY")
-                ot.addSrcSecret(my_wallet.getSecret())
-                r = ot.submit() 
-                logger.info("remove_trustline test:" + str(r))
-            except Exception, e:
-                logger.error("remove_trustline:" + str(e)) 
-            my_wallet.set_wallet_status(16)
 
 
     time.sleep(2)

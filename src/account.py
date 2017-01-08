@@ -25,19 +25,39 @@ import hashlib
 import hmac
 import time
 
-from server import Server, APIServer, TTongServer
+from server import Server, APIServer, TumServer
 
 class Account(Server):
     def __init__(self):
         super(Account, self).__init__()
         self.api_helper = APIServer()
-        self.tt_helper = TTongServer()
-        
+        self.tt_helper = TumServer()
+        from server import g_test_evn
+        if g_test_evn:
+            self.api_helper.setTest(True)
+            self.tt_helper.setTest(True)
+
     def get(self, *para):
+        from server import g_test_evn
+        if g_test_evn:
+            self.api_helper.setTest(True)
+            self.tt_helper.setTest(True)
+ 
         return self.api_helper.get(*para)
 
     def tt_send(self, *para):
+        from server import g_test_evn
+        if g_test_evn:
+            self.api_helper.setTest(True)
+            self.tt_helper.setTest(True)
         return self.tt_helper.send(*para)
+
+    def submit(self, *para):
+        from server import g_test_evn
+        if g_test_evn:
+            self.api_helper.setTest(True)
+            self.tt_helper.setTest(True)
+        return self.api_helper.post(*para)
 
 
 class FinGate(Account):
@@ -49,7 +69,7 @@ class FinGate(Account):
 
         self.custom = ""
         self.ekey = ""
-        self.activate_amount = 0
+        self.activate_amount = 25
 
     def setPrefix(self, perfix):
         self.tran_perfix = perfix
@@ -159,12 +179,35 @@ class FinGate(Account):
     def getToken(self):
         return self.custom
 
+    def activeWallet(self, src_address, src_secret, destination_account, 
+        currency_type=Config.CURRENCY_TYPE, is_sync=False):
+        _payment = {}
+        _payment["destination_amount"] = {"currency": str(currency_type), \
+            "value": str(self.getActivateAmount()), "issuer": ""}
+        _payment["source_account"] = src_address
+        _payment["destination_account"] = destination_account
+        
+
+        _para = {}
+        _para["secret"] = src_secret
+        _para["payment"] = _payment
+        _para["client_resource_id"] = self.getNextUUID()
+
+        if is_sync:
+          url = 'accounts/{address}/payments?validated=true'
+        else:
+          url = 'accounts/{address}/payments'
+        url = url.format(address=src_address)
+
+        return self.submit(url, _para)
+
+
 class Wallet(Account):
     def __init__(self, address, secret):
         super(Wallet, self).__init__()
         self.address = address
         self.secret = secret
-
+        
     def getAddress(self):
         return self.address
 

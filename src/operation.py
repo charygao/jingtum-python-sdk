@@ -33,7 +33,10 @@ class Operation(FinGate):
         self.is_sync = False
 
         self.api_helper = APIServer()
-
+        from server import g_test_evn
+        if g_test_evn:
+            self.api_helper.setTest(True)
+            
         self.validateAddress(src_address)
 
     def validateAddress(self, address):
@@ -42,6 +45,9 @@ class Operation(FinGate):
         
     def submit(self):
         #print self.oper()
+        from server import g_test_evn
+        if g_test_evn:
+            self.api_helper.setTest(True)
         return self.api_helper.post(*self.oper())
 
     def addSrcSecret(self, src_secret):
@@ -50,9 +56,9 @@ class Operation(FinGate):
     def addSync(self, is_sync):
         self.is_sync = is_sync
 
-class SubmitPayment(Operation):
+class PaymentOperation(Operation):
     def __init__(self, src_address):
-        super(SubmitPayment, self).__init__(src_address)
+        super(PaymentOperation, self).__init__(src_address)
         self.amt = {}
         self.dest_address = ""
         self.path = ""
@@ -106,9 +112,9 @@ class SubmitPayment(Operation):
 
         return url, _para
 
-class CreateOrder(Operation):
+class OrderOperation(Operation):
     def __init__(self, src_address):
-        super(CreateOrder, self).__init__(src_address)
+        super(OrderOperation, self).__init__(src_address)
         self.order_type = "buy"
         self.takerpays = {}
         self.takergets = {}
@@ -162,10 +168,10 @@ class CreateOrder(Operation):
 
         return url, _para
 
-class CancelOrder(Operation):
+class CancelOrderOperation(Operation):
     """docstring for CancelOrder"""
     def __init__(self, src_address):
-        super(CancelOrder, self).__init__(src_address)
+        super(CancelOrderOperation, self).__init__(src_address)
         self.order_num = 0
 
     def para_required(func):

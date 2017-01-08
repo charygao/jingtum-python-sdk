@@ -34,18 +34,23 @@ from logger import logger
 
 from config import Config
 
+g_test_evn = False
+
 class JingtumRESTException(Exception):
   pass
 
-class TTongApiException(Exception):
+class TumApiException(Exception):
   pass
 
 class Server(Config):
     def __init__(self):
         super(Server, self).__init__()  
-        self.setTest()
+        global g_test_evn
+        self.setTest(g_test_evn)
         
-    def setTest(self, isTest = True):
+    def setTest(self, isTest = False):
+        global g_test_evn
+        g_test_evn = isTest
         self.isTest = isTest
 
         if isTest:
@@ -78,7 +83,7 @@ class APIServer(Server):
         pieces = (self.url, path, parameters, None)
         url = "%s%s?%s"%(self.url, path, parameters)
         #logger.debug("in _request:" + str(url))
-        print ("in _request:" + str(url))
+        #print ("in _request:" + str(url))
 
         req = urllib2.Request(url)
         if method is not None:
@@ -121,7 +126,7 @@ class APIServer(Server):
         
         url = "%s%s"%(self.url, path)
         #logger.debug("in _request:" + str(url))
-        print ("in _request:" + str(url))
+        #print ("in _request:" + str(url))
         #req = urllib.request.Request(url)
         req = urllib2.Request(url)
         if method is not None:
@@ -131,7 +136,7 @@ class APIServer(Server):
           data = json.dumps(data).encode('utf-8')
         try:
           #logger.debug("in _request:" + str(data))
-          print ("in _request:" + str(data))
+          #print ("in _request:" + str(data))
           response = urllib2.urlopen(req, data, timeout=10)
           realsock = response.fp._sock.fp._sock
           res = json.loads(response.read().decode('utf-8'))
@@ -151,9 +156,9 @@ class APIServer(Server):
     def delete(self, path, data=None, method="DELETE"):
         return self.post(path, data, method)
 
-class TTongServer(Server):
+class TumServer(Server):
     def __init__(self):
-        super(TTongServer, self).__init__()  
+        super(TumServer, self).__init__()  
         pass
 
     def send(self, path, data=None, method="POST"):
@@ -168,7 +173,7 @@ class TTongServer(Server):
         # url = urlparse.urlunsplit(pieces)
         url = path
         #logger.debug("in _request:" + str(url))
-        print "in _request:" + str(url)
+        #print "in _request:" + str(url)
         req = urllib2.Request(url)
         if method is not None:
           req.get_method = lambda:method
@@ -177,7 +182,7 @@ class TTongServer(Server):
           req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
           #logger.debug("in _request:" + str(data))
-          print "in _request:" + str(data)
+          #print "in _request:" + str(data)
           response = urllib2.urlopen(req, timeout=10)
           realsock = response.fp._sock.fp._sock
           res = json.loads(response.read().decode('utf-8'))
@@ -188,8 +193,8 @@ class TTongServer(Server):
           if e.code == 400:
             return json.loads(error_object.decode('utf-8'))
           else:
-            print "ddddddd", e.__dict__
-            raise TTongApiException(error_object)
+            #print "ddddddd", e.__dict__
+            raise TumApiException(error_object)
 
         return res
 
