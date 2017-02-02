@@ -17,7 +17,7 @@
 """
 
 from config import Config
-from sign import ecdsa_sign, ecc_point_to_bytes_compressed, root_key_from_seed, parse_seed
+from sign import ecdsa_sign, ecc_point_to_bytes_compressed, root_key_from_seed, parse_seed, get_secret, get_jingtum_from_secret
 from serialize import fmt_hex, to_bytes, from_bytes
 
 import binascii
@@ -26,6 +26,17 @@ import hmac
 import time
 
 from server import Server, APIServer, TumServer
+
+path_convert = {}
+
+class JingtumOperException(Exception):
+    pass
+
+class Amount(dict):
+    def __init__(self, value, currency, issuer=None):
+        self['value'] = str(value)
+        self['currency'] = str(currency)
+        self['issuer'] = str(issuer) 
 
 class Account(Server):
     def __init__(self):
@@ -52,15 +63,22 @@ class Account(Server):
             self.tt_helper.setTest(True)
         return self.tt_helper.send(*para)
 
-    def submit(self, *para):
+    def submit(self, url, para, callback=None):
         from server import g_test_evn
         if g_test_evn:
             self.api_helper.setTest(True)
             self.tt_helper.setTest(True)
-        return self.api_helper.post(*para)
+
+        if callback is None:
+            return self.api_helper.post(url, para, callback=callback)
+        else:
+            self.api_helper.postasyn(url, para, callback=callback)
+            return None
 
 
 class FinGate(Account):
+    Tran_Perfix = Config.TRAN_PERFIX
+    DEVLOPMENT = True
     def __init__(self):
         super(FinGate, self).__init__()
 
@@ -71,18 +89,52 @@ class FinGate(Account):
         self.ekey = ""
         self.activate_amount = 25
 
+        self.fingate_address = None
+        self.fingate_secret = None
+
+    def __new__(self, *args, **kw):  
+        if not hasattr(self, '_instance'):  
+            orig = super(FinGate, self)  
+            self._instance = orig.__new__(self, *args, **kw)  
+        return self._instance  
+
+    def setAccount(self, fingate_secret, fingate_address):
+        self.fingate_address = fingate_address
+        self.fingate_secret = fingate_secret
+
     def setPrefix(self, perfix):
         self.tran_perfix = perfix
 
     def getPrefix(self):
         return self.tran_perfix
 
-    def createWallet(self):
+    def createWalletServer(self):
         #return ("wallet/new", )
-        return self.get("wallet/new", )
+        my_address, my_secret, wallet = None, None, None
+        ret = self.get("wallet/new", )
+        if ret.has_key("success") and ret["success"]:
+            my_address, my_secret = ret["wallet"]["address"], ret["wallet"]["secret"]
+            print "My Account: %s-%s" % (my_address, my_secret) 
+            wallet = Wallet(my_secret, my_address)
+
+        return wallet
+
+    def createWallet(self):
+        my_secret = get_secret()
+        my_address = get_jingtum_from_secret(my_secret)
+        
+        print "My Account: %s-%s" % (my_address, my_secret) 
+        wallet = Wallet(my_secret, my_address)
+
+        return wallet
+
 
     def getNextUUID(self):
         return "%s%d"%(self.tran_perfix, int(time.time() * 1000))
+
+    @classmethod
+    def getNextUUID(cls):
+        return "%s%d"%(cls.Tran_Perfix, int(time.time() * 1000))
 
     def getTrustLimit(self):
         return self.trust_limit
@@ -102,8 +154,10 @@ class FinGate(Account):
     def getPathRate(self):
         pass
 
-    def setConfig(self, custom, ekey):
+    def setToken(self, custom):
         self.custom = custom
+        
+    def setKey(self, ekey):
         self.ekey = ekey
 
     def get_hmac_sign(self, to_enc):
@@ -125,7 +179,7 @@ class FinGate(Account):
         return _func 
 
     @para_required
-    def issueCustomTum(self, p2_order, p3_currency, p4_amount, p5_account):
+    def issueCustomTum(self, p3_currency, p4_amount, p2_order, p5_account):
         to_enc = "%s%s%s%s%s%s" % (Config.issue_custom_tum, self.custom, 
             p2_order, p3_currency, p4_amount, p5_account)
         hmac = self.get_hmac_sign(to_enc)
@@ -157,7 +211,8 @@ class FinGate(Account):
         return self.tt_send(self.tt_address, datas)
 
     @para_required
-    def queryCustomTum(self, p2_currency, p3_date):
+    def queryCustomTum(self, p2_currency):
+        p3_date = int(time.time())
         to_enc = "%s%s%s%s" % (Config.query_custom_tum, self.custom, p2_currency, p3_date)
         hmac = self.get_hmac_sign(to_enc)
         datas = {
@@ -179,17 +234,30 @@ class FinGate(Account):
     def getToken(self):
         return self.custom
 
-    def activeWallet(self, src_address, src_secret, destination_account, 
-        currency_type=Config.CURRENCY_TYPE, is_sync=False):
+    def para_required2(func):
+        def _func(*args, **args2): 
+            if args[0].fingate_secret == None:
+                raise JingtumOperException("setAccount first before activeWallet.")
+            elif args[0].fingate_address == None:
+                raise JingtumOperException("setAccount first before activeWallet.")
+            else: 
+                back = func(*args, **args2)  
+                return back  
+            
+        return _func
+
+    @para_required2
+    def activeWallet(self, destination_account, 
+        currency_type=Config.CURRENCY_TYPE, is_sync=False, callback=None):
         _payment = {}
         _payment["destination_amount"] = {"currency": str(currency_type), \
             "value": str(self.getActivateAmount()), "issuer": ""}
-        _payment["source_account"] = src_address
+        _payment["source_account"] = self.fingate_address
         _payment["destination_account"] = destination_account
         
 
         _para = {}
-        _para["secret"] = src_secret
+        _para["secret"] = self.fingate_secret
         _para["payment"] = _payment
         _para["client_resource_id"] = self.getNextUUID()
 
@@ -197,13 +265,13 @@ class FinGate(Account):
           url = 'accounts/{address}/payments?validated=true'
         else:
           url = 'accounts/{address}/payments'
-        url = url.format(address=src_address)
+        url = url.format(address=self.fingate_address)
 
-        return self.submit(url, _para)
+        return self.submit(url, _para, callback=callback)
 
 
 class Wallet(Account):
-    def __init__(self, address, secret):
+    def __init__(self, secret, address):
         super(Wallet, self).__init__()
         self.address = address
         self.secret = secret
@@ -366,10 +434,33 @@ class Wallet(Account):
         #return url, parameters
         return self.get(url, parameters)
 
-    def getPathList(self, destination_account, value, currency, issuer=None):
+    def _processPath(self, res):
+        global path_convert
+        _ret = []
+        if res and res.has_key("payments"):
+            for l in res["payments"]:
+                _r, _k = {}, ""
+                if l.has_key("paths"):
+                    _k = hashlib.sha1(str(l["paths"])).hexdigest()
+                    if not path_convert.has_key(_k):
+                        path_convert[_k] = l["paths"]
+                    _r["key"] = _k
+
+                if l.has_key("source_amount"):
+                    _r["choice"] = l["source_amount"]
+                    
+                _ret.append(_r)
+        else:
+            print "error"
+            raise JingtumOperException("error when processing path.")
+            
+        return _ret
+
+
+    def getChoices(self, destination_account, amount): #getPathList
         parameters = self.get_sign_info()
 
-        elements = filter(bool, (value, currency, issuer))
+        elements = filter(bool, (amount["value"], amount["currency"], amount["issuer"]))
         destination_amount = '+'.join(map(str, elements))
         url = 'accounts/{source}/payments/paths/{target}/{amount}'
         url = url.format(
@@ -379,7 +470,8 @@ class Wallet(Account):
         )
 
         #return url, parameters
-        return self.get(url, parameters)
+        res = self.get(url, parameters)
+        return self._processPath(res) 
 
     def getTrustLineList(self, currency=None, counterparty=None, limit=None):
         parameters = self.get_sign_info()
@@ -392,22 +484,14 @@ class Wallet(Account):
         #return url, parameters
         return self.get(url, parameters)
 
-    def getTransactionList(self, source_account=None, destination_account=None, exclude_failed=None, \
-        direction=None, results_per_page=None, page=None):
+    def getTransactionList(self, options=None):
         parameters = self.get_sign_info()
 
-        if source_account is not None:
-          parameters["source_account"] = source_account
-        if destination_account is not None:
-          parameters["destination_account"] = destination_account
-        if exclude_failed is not None:
-          parameters["exclude_failed"] = exclude_failed
-        if direction is not None:
-          parameters["direction"] = direction
-        if results_per_page is not None:
-          parameters["results_per_page"] = results_per_page
-        if page is not None:
-          parameters["page"] = page
+        _l = ("source_account", "destination_account", "exclude_failed", "direction", "results_per_page", "page")
+        if options is not None:
+            keys = list(set(_l).intersection(set(options.keys())))
+            for k in keys:
+                parameters[k] = options[k]
 
         url = 'accounts/{address}/payments'
         url = url.format(address=self.address)

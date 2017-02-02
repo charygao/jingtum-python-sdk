@@ -19,7 +19,7 @@
 from websocket import create_connection
 import threading
 import json
-
+import unirest
 
 import urllib2
 #import urllib.parse
@@ -66,6 +66,9 @@ class Server(Config):
 
             self.tt_address = Config.ttong_address
 
+    def setMode(self, is_Test):
+        self.setTest(is_Test)    
+
 class APIServer(Server):
     def __init__(self):
         super(APIServer, self).__init__()  
@@ -83,7 +86,7 @@ class APIServer(Server):
         pieces = (self.url, path, parameters, None)
         url = "%s%s?%s"%(self.url, path, parameters)
         #logger.debug("in _request:" + str(url))
-        #print ("in _request:" + str(url))
+        print ("in _request:" + str(url))
 
         req = urllib2.Request(url)
         if method is not None:
@@ -106,7 +109,24 @@ class APIServer(Server):
         else:
           raise JingtumRESTException(res['message'])
 
-    def post(self, path, data=None, method="POST"):
+    def postasyn(self, path, data=None, method="POST", callback=None):
+        def post_cb(response):
+            callback(response.body)
+
+        path = '/{version}/{path}'.format(version=self.api_version, path=path)
+        url = "%s%s"%(self.url, path)
+        data = json.dumps(data).encode('utf-8')
+        print ("in _request:" + str(url))
+        print ("in _request:" + str(data))
+        if method == "DELETE":
+            unirest.delete(url, headers={"Content-Type": "application/json;charset=utf-8"}, 
+                params=data, callback=post_cb)
+        else:
+            unirest.post(url, headers={"Content-Type": "application/json;charset=utf-8"}, 
+                params=data, callback=post_cb)
+
+
+    def post(self, path, data=None, method="POST", callback=None):
         """Make an HTTP request to the server
       
         Encode the query parameters and the form data and make the GET or POST
@@ -126,7 +146,7 @@ class APIServer(Server):
         
         url = "%s%s"%(self.url, path)
         #logger.debug("in _request:" + str(url))
-        #print ("in _request:" + str(url))
+        print ("in _request:" + str(url))
         #req = urllib.request.Request(url)
         req = urllib2.Request(url)
         if method is not None:
@@ -136,7 +156,7 @@ class APIServer(Server):
           data = json.dumps(data).encode('utf-8')
         try:
           #logger.debug("in _request:" + str(data))
-          #print ("in _request:" + str(data))
+          print ("in _request:" + str(data))
           response = urllib2.urlopen(req, data, timeout=10)
           realsock = response.fp._sock.fp._sock
           res = json.loads(response.read().decode('utf-8'))
@@ -149,7 +169,10 @@ class APIServer(Server):
         #####print "in _request", path, response
         if res['success']:
           #del response['success']
-          return res
+          if callback is None:
+            return res
+          else:
+            callback(res)
         else:
           raise JingtumRESTException(res['message'])
 
@@ -173,7 +196,7 @@ class TumServer(Server):
         # url = urlparse.urlunsplit(pieces)
         url = path
         #logger.debug("in _request:" + str(url))
-        #print "in _request:" + str(url)
+        print "in _request:" + str(url)
         req = urllib2.Request(url)
         if method is not None:
           req.get_method = lambda:method
@@ -182,7 +205,7 @@ class TumServer(Server):
           req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
           #logger.debug("in _request:" + str(data))
-          #print "in _request:" + str(data)
+          print "in _request:" + str(data)
           response = urllib2.urlopen(req, timeout=10)
           realsock = response.fp._sock.fp._sock
           res = json.loads(response.read().decode('utf-8'))

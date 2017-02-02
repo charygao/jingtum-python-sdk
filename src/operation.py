@@ -22,46 +22,61 @@ from logger import logger
 from server import APIServer
 from serialize import JingtumBaseDecoder
 
+from account import path_convert, Amount
+
 class JingtumOperException(Exception):
     pass
 
-class Operation(FinGate):
-    def __init__(self, src_address):
+class Operation(object):
+    def __init__(self, wallet):
         super(Operation, self).__init__()
-        self.src_address = src_address
-        self.src_secret = ""
+        self.src_address = wallet.address
+        self.src_secret = wallet.secret
         self.is_sync = False
+        self.client_resource_id = self.getNextUUID()
 
         self.api_helper = APIServer()
         from server import g_test_evn
         if g_test_evn:
             self.api_helper.setTest(True)
             
-        self.validateAddress(src_address)
+        self.validateAddress(self.src_address)
+
+    def getNextUUID(self):
+        return FinGate.getNextUUID()
 
     def validateAddress(self, address):
         if not JingtumBaseDecoder.verify_checksum(JingtumBaseDecoder.decode_base(address, 25)):
             raise JingtumOperException("Invalid address: %s" %  str(address))
         
-    def submit(self):
+    def submit(self, callback=None):
         #print self.oper()
         from server import g_test_evn
         if g_test_evn:
             self.api_helper.setTest(True)
-        return self.api_helper.post(*self.oper())
+        if callback is None:
+            return self.api_helper.post(*self.oper(), callback=callback)
+        else:
+            self.api_helper.postasyn(*self.oper(), callback=callback)
+            return None
 
-    def addSrcSecret(self, src_secret):
-        self.src_secret = src_secret
+    # def addSrcSecret(self, src_secret):
+    #     self.src_secret = src_secret
 
-    def addSync(self, is_sync):
+    def setValidate(self, is_sync):
         self.is_sync = is_sync
 
+    def setClientId(self, client_resource_id):
+        self.client_resource_id = client_resource_id
+
+
 class PaymentOperation(Operation):
-    def __init__(self, src_address):
-        super(PaymentOperation, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(PaymentOperation, self).__init__(wallet)
         self.amt = {}
         self.dest_address = ""
-        self.path = ""
+        self.path_convert = path_convert
+        self.path = None
 
     def para_required(func):
         def _func(*args, **args2): 
@@ -80,16 +95,15 @@ class PaymentOperation(Operation):
             
         return _func 
 
-    def addAmount(self, currency_type, currency_value, issuer=""):
-        self.amt["value"] = str(currency_value)
-        self.amt["currency"] = str(currency_type)
-        self.amt["issuer"] = str(issuer)
+    def setAmount(self, amount):
+        self.amt = amount
 
-    def addDestAddress(self, dest_address):
+    def setDestAddress(self, dest_address):
         self.dest_address = dest_address
 
-    def addPath(self, path):
-        self.path = path
+    def setChoice(self, key):
+        if self.path_convert.has_key(key):
+            self.path = self.path_convert[key]
 
     @para_required
     def oper(self):
@@ -97,12 +111,13 @@ class PaymentOperation(Operation):
         _payment["destination_amount"] = self.amt
         _payment["source_account"] = self.src_address
         _payment["destination_account"] = self.dest_address
-        _payment["payment_path"] = self.path
+        if self.path is not None:
+            _payment["paths"] = self.path
 
         _para = {}
         _para["secret"] = self.src_secret
         _para["payment"] = _payment
-        _para["client_resource_id"] = self.getNextUUID()
+        _para["client_resource_id"] = self.client_resource_id
 
         if self.is_sync:
           url = 'accounts/{address}/payments?validated=true'
@@ -113,20 +128,30 @@ class PaymentOperation(Operation):
         return url, _para
 
 class OrderOperation(Operation):
-    def __init__(self, src_address):
-        super(OrderOperation, self).__init__(src_address)
+    SELL = "sell"
+    BUY = "buy"
+    def __init__(self, wallet):
+        super(OrderOperation, self).__init__(wallet)
         self.order_type = "buy"
-        self.takerpays = {}
-        self.takergets = {}
+        self.base_currency, self.base_issuer = None, None
+        self.counter_currency, self.counter_issuer = None, None
+        self.amount = 0
+        self.price = 0
 
     def para_required(func):
         def _func(*args, **args2): 
-            if len(args[0].takerpays) == 0:
-                #logger.error("setTakePays first:" + func.__name__)
-                raise JingtumOperException("setTakePays first before oper.")
-            elif len(args[0].takergets) == 0:
-                #logger.error("setTakeGets first:" + func.__name__)
-                raise JingtumOperException("setTakeGets first before oper.")
+            if args[0].counter_currency is None or args[0].counter_issuer is None:
+                #logger.error("setPair first:" + func.__name__)
+                raise JingtumOperException("setPair first before oper.")
+            elif args[0].base_currency is None or args[0].base_issuer is None:
+                #logger.error("setPair first:" + func.__name__)
+                raise JingtumOperException("setPair first before oper.")
+            elif args[0].amount == 0:
+                #logger.error("setAmount first:" + func.__name__)
+                raise JingtumOperException("setAmount first before oper.")
+            elif args[0].price == 0:
+                #logger.error("setPrice first:" + func.__name__)
+                raise JingtumOperException("setPrice first before oper.")
             elif args[0].src_secret == "":
                 #logger.error("addDestAddress first:" + func.__name__)
                 raise JingtumOperException("addSrcSecret first before oper.")
@@ -136,25 +161,66 @@ class OrderOperation(Operation):
             
         return _func 
 
-    def setOrderType(self, is_sell):
-        self.order_type = "sell" if is_sell else "buy"
+    def setPair(self, pair):
+        try:
+            base, counter = pair.split("/")
+            if base.find(":") > 0:
+                self.base_currency, self.base_issuer = base.split(":")
+            else:
+                self.base_currency, self.base_issuer = base, ""
 
-    def setTakePays(self, currency_type, currency_value, counterparty=""):
-        self.takerpays["value"] = str(currency_value)
-        self.takerpays["currency"] = str(currency_type)
-        self.takerpays["counterparty"] = str(counterparty)
+            if counter.find(":") > 0:
+                self.counter_currency, self.counter_issuer = counter.split(":")
+            else:
+                self.counter_currency, self.counter_issuer = counter, ""
+        except Exception, e:
+            raise JingtumOperException("setPair para Invalid.")
 
-    def setTakeGets(self, currency_type, currency_value, counterparty=""):
-        self.takergets["value"] = str(currency_value)
-        self.takergets["currency"] = str(currency_type)
-        self.takergets["counterparty"] = str(counterparty)
+
+    def setType(self, order_type):
+        self.order_type = order_type
+
+    def setAmount(self, amount):
+        self.amount = amount
+
+    def setPrice(self, price):
+        self.price = price
+
+    # def setTakePays(self, currency_type, currency_value, counterparty=""):
+    #     self.takerpays["value"] = str(currency_value)
+    #     self.takerpays["currency"] = str(currency_type)
+    #     self.takerpays["counterparty"] = str(counterparty)
+
+    # def setTakeGets(self, currency_type, currency_value, counterparty=""):
+    #     self.takergets["value"] = str(currency_value)
+    #     self.takergets["currency"] = str(currency_type)
+    #     self.takergets["counterparty"] = str(counterparty)
 
     @para_required
     def oper(self):
         _order = {}
+        takergets, takerpays = {}, {}
+
+        if self.order_type == "sell":
+            takergets["value"] = str(self.amount)
+            takergets["currency"] = str(self.base_currency)
+            takergets["counterparty"] = str(self.base_issuer)
+
+            takerpays["value"] = str(self.amount * self.price)
+            takerpays["currency"] = str(self.counter_currency)
+            takerpays["counterparty"] = str(self.counter_issuer)
+        else:
+            takerpays["value"] = str(self.amount)
+            takerpays["currency"] = str(self.base_currency)
+            takerpays["counterparty"] = str(self.base_issuer)
+
+            takergets["value"] = str(self.amount * self.price)
+            takergets["currency"] = str(self.counter_currency)
+            takergets["counterparty"] = str(self.counter_issuer)
+
         _order["type"] = self.order_type
-        _order["taker_pays"] = self.takerpays
-        _order["taker_gets"] = self.takergets
+        _order["taker_pays"] = takerpays
+        _order["taker_gets"] = takergets
 
         _para = {}
         _para["secret"] = self.src_secret
@@ -170,8 +236,8 @@ class OrderOperation(Operation):
 
 class CancelOrderOperation(Operation):
     """docstring for CancelOrder"""
-    def __init__(self, src_address):
-        super(CancelOrderOperation, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(CancelOrderOperation, self).__init__(wallet)
         self.order_num = 0
 
     def para_required(func):
@@ -188,7 +254,7 @@ class CancelOrderOperation(Operation):
             
         return _func 
 
-    def setOrderNum(self, order_num):
+    def setSequence(self, order_num):
         self.order_num = order_num
 
     @para_required
@@ -205,8 +271,8 @@ class CancelOrderOperation(Operation):
         return url, _para, "DELETE"
 
 class AddRelation(Operation):
-    def __init__(self, src_address):
-        super(AddRelation, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(AddRelation, self).__init__(wallet)
         self.amt = {}
         self.counterparty = ""
         self.relation_type = ""
@@ -259,8 +325,8 @@ class AddRelation(Operation):
         return url, _para
 
 class RemoveRelation(Operation):
-    def __init__(self, src_address):
-        super(RemoveRelation, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(RemoveRelation, self).__init__(wallet)
         self.amt = {}
         self.counterparty = ""
         self.relation_type = ""
@@ -310,8 +376,8 @@ class RemoveRelation(Operation):
         return url, _para, "DELETE"
 
 class WalletSettings(Operation):
-    def __init__(self, src_address):
-        super(WalletSettings, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(WalletSettings, self).__init__(wallet)
 
     def oper(self):
         _para = {}
@@ -323,8 +389,8 @@ class WalletSettings(Operation):
         return url, _para
 
 class AddTrustLine(Operation):
-    def __init__(self, src_address):
-        super(AddTrustLine, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(AddTrustLine, self).__init__(wallet)
         self.counterparty = ""
         self.currency = ""
         self.frozen = False
@@ -379,8 +445,8 @@ class AddTrustLine(Operation):
         return url, _para
 
 class RemoveTrustLine(Operation):
-    def __init__(self, src_address):
-        super(RemoveTrustLine, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(RemoveTrustLine, self).__init__(wallet)
         self.counterparty = ""
         self.currency = ""
         self.frozen = False
@@ -435,8 +501,8 @@ class RemoveTrustLine(Operation):
         return url, _para
 
 class SubmitMessage(Operation):
-    def __init__(self, src_address):
-        super(SubmitMessage, self).__init__(src_address)
+    def __init__(self, wallet):
+        super(SubmitMessage, self).__init__(wallet)
         self.destination_account = ""
         self.message = ""
 

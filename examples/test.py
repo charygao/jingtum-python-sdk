@@ -35,12 +35,14 @@ test_currency = str(cfg_data["DEV"]["fingate1"]["tum1"])
 
 # init FinGate
 fingate = FinGate()
-fingate.setTest(True)
+fingate.setMode(FinGate.DEVLOPMENT)
+fingate.setAccount(test_secret, test_address)
+fingate.setActivateAmount(30)
 
-#tongtong testing
+#tum issuing testing
 fingate.setConfig(custom, ekey)
 order = fingate.getNextUUID()
-ret = fingate.issueCustomTum(order, test_currency, "123.45", test_ulimit_address)
+ret = fingate.issueCustomTum(order, test_currency, "23.45", test_ulimit_address)
 logger.info("issueCustomTum:" + str(ret))
 
 logger.info("queryIssue:" + str(fingate.queryIssue(order)))

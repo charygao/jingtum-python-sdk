@@ -15,17 +15,58 @@
 """
 
 import hashlib
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from ecdsa import curves, SigningKey, six
 from ecdsa.util import sigencode_der
 from .serialize import (
     to_bytes, from_bytes, JingtumBaseDecoder, serialize_object, fmt_hex)
+import os, time
+from random import randint
 
 
 __all__ = ('sign_transaction', 'signature_for_transaction')
 
 
 tfFullyCanonicalSig = 0x80000000
+
+# add by frank for secret
+def hash256(data):
+    """
+        operation twice
+    """
+    one256 = unhexlify(hashlib.sha256(data).hexdigest())
+    return hashlib.sha256(one256).hexdigest()
+
+def get_str(l):
+    sss = ""
+    while(l>0):
+        try:
+            l, b = divmod(l, 58)
+            sss +=  JingtumBaseDecoder.alphabet[b:b+1]
+        except Exception, e:
+            print "get_str error[%s]."%str(b)
+            return None
+    return sss[::-1]
+
+
+def get_secret(extra="FSQF5356dsdsqdfEFEQ3fq4q6dq4s5d"):
+    """
+        get a random secret
+    """
+    try:
+        rnd = hexlify(os.urandom(256))
+        tim = time.time()
+        data = "%s%s%s%s"%(rnd, tim, randint(100000000000, 1000000000000), extra)
+        res = int(hash256(data), 16)
+        seed = '21' + str(res)[:32]
+        secretKey = hash256(unhexlify(seed))[:8]
+        l = int(seed + secretKey, 16)
+    except Exception, e:
+        print "get_secret error[%s]."%str(e)
+        return None
+
+    return get_str(l)
+# add by frank end
 
 
 def sign_transaction(transaction, secret, flag_canonical=True):
