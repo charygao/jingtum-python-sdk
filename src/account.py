@@ -38,6 +38,16 @@ class Amount(dict):
         self['currency'] = str(currency)
         self['issuer'] = str(issuer) 
 
+class Memo(dict):
+    def __init__(self):
+        pass
+
+    def setType(self, value):
+        self['memo_type'] = value
+
+    def setData(self, value):
+        self['memo_data'] = value
+
 class Account(Server):
     def __init__(self):
         super(Account, self).__init__()
@@ -48,13 +58,17 @@ class Account(Server):
             self.api_helper.setTest(True)
             self.tt_helper.setTest(True)
 
-    def get(self, *para):
+    def get(self, url, para, callback=None, cb_para=None):
         from server import g_test_evn
         if g_test_evn:
             self.api_helper.setTest(True)
             self.tt_helper.setTest(True)
- 
-        return self.api_helper.get(*para)
+        
+        if callback is None:
+            return self.api_helper.get(url, para)
+        else:
+            self.api_helper.getasyn(url, para, callback=callback, cb_para=cb_para)
+            return None
 
     def tt_send(self, *para):
         from server import g_test_evn
@@ -269,6 +283,68 @@ class FinGate(Account):
 
         return self.submit(url, _para, callback=callback)
 
+    def _pri_order_book_data_process(self, ob):
+        ret = {}
+
+        if ob.has_key("order_book"):
+            ret["pair"] = ob["order_book"]
+
+        if ob.has_key("bids"):
+            ret["bids"] = []
+            for l in ob["bids"]:
+                _r = {}
+                if l.has_key("sell") and l["sell"] == False:
+                    _r["total"] = l["taker_pays_total"]["value"]
+                    _r["funded"] = l["taker_pays_funded"]["value"]
+                else:
+                    _r["total"] = l["taker_gets_total"]["value"]
+                    _r["funded"] = l["taker_gets_funded"]["value"]
+                _r["order_maker"] = l["order_maker"]
+                _r["sequence"] = l["sequence"]
+                _r["price"] = l["price"]["value"]
+                ret["bids"].append(_r)
+
+        if ob.has_key("asks"):
+            ret["asks"] = []
+            for l in ob["asks"]:
+                _r = {}
+                if l.has_key("sell") and l["sell"] == False:
+                    _r["total"] = l["taker_pays_total"]["value"]
+                    _r["funded"] = l["taker_pays_funded"]["value"]
+                else:
+                    _r["total"] = l["taker_gets_total"]["value"]
+                    _r["funded"] = l["taker_gets_funded"]["value"]
+                _r["order_maker"] = l["order_maker"]
+                _r["sequence"] = l["sequence"]
+                _r["price"] = l["price"]["value"]
+                ret["asks"].append(_r)
+
+        return ret
+
+    def getOrderBookCB(self, data, callback):
+        ret = self._pri_order_book_data_process(data)
+        callback(ret)
+
+    @para_required2
+    def getOrderBook(self, pair, callback=None):
+        #parameters = self.get_sign_info()
+        ret = None
+        parameters = {}
+
+        try:
+            pair = pair.replace(":", "+")
+            base, counter = pair.split("/")
+        except Exception, e:
+            raise JingtumOperException("pair para Invalid.")
+
+        url = 'accounts/{address}/order_book/{base}/{counter}'
+        url = url.format(address=self.fingate_address, base=base, counter=counter)
+        
+        #return url, parameters
+        data = self.get(url, parameters, callback=self.getOrderBookCB, cb_para=callback)
+        if data is not None:
+            ret = self._pri_order_book_data_process(data) 
+        return ret
 
 class Wallet(Account):
     def __init__(self, secret, address):
@@ -317,8 +393,36 @@ class Wallet(Account):
         url = 'accounts/{address}/balances'
         url = url.format(address=self.address)        
         
-        return self.get(url, parameters)
+        ret = self.get(url, parameters)
+        if ret.has_key("balances"):
+            _b_list = []
+            for b in ret["balances"]:
+                if b.has_key("counterparty"):
+                    b.update(issuer=b.pop("counterparty"))
+                    _b_list.append(b)
+
+            ret["balances"] = _b_list
+
+        return ret
         #return url, parameters
+
+    def _pri_one_order_data_process(self, data):
+        ret = {}
+        a = data["taker_pays"]["currency"] + ":" + data["taker_pays"]["counterparty"] if data["taker_pays"]["counterparty"] <> "" else data["taker_pays"]["currency"] 
+        b = data["taker_gets"]["currency"] + ":" + data["taker_gets"]["counterparty"] if data["taker_gets"]["counterparty"] <> "" else data["taker_gets"]["currency"]     
+        if data["type"] == "buy":
+            ret["pair"] = a + "/" + b
+            ret["amount"] = float(data["taker_pays"]["value"])
+            ret["price"] = float(data["taker_gets"]["value"]) / int(data["taker_pays"]["value"])
+        else:
+            ret["pair"] = b + "/" + a
+            ret["amount"] = float(data["taker_gets"]["value"])
+            ret["price"] = float(data["taker_pays"]["value"]) / int(data["taker_gets"]["value"])
+        ret["account"] = data["account"]
+        ret["type"] = data["type"]
+        ret["sequence"] = data["sequence"]
+
+        return ret
 
 
     def getOrder(self, hash_id):
@@ -328,25 +432,40 @@ class Wallet(Account):
         url = url.format(address=self.address, hash_id=hash_id)
         
         #return url, parameters
-        return self.get(url, parameters)
+        ret =  self.get(url, parameters)
+        if ret.has_key("order"):
+            order =  self._pri_one_order_data_process(ret["order"])
+            ret["order"] = order
 
-    def getOrderBook(self, base, counter):
-        parameters = self.get_sign_info()
+        return ret 
 
-        url = 'accounts/{address}/order_book/{base}/{counter}'
-        url = url.format(address=self.address, base=base, counter=counter)
+    # def getOrderBook(self, base, counter):
+    #     parameters = self.get_sign_info()
+
+    #     url = 'accounts/{address}/order_book/{base}/{counter}'
+    #     url = url.format(address=self.address, base=base, counter=counter)
         
-        #return url, parameters
-        return self.get(url, parameters)
+    #     #return url, parameters
+    #     return self.get(url, parameters)
 
     def getOrderList(self):
+        r = {}
         parameters = self.get_sign_info()
 
         url = 'accounts/{address}/orders'
         url = url.format(address=self.address)
         
         #return url, parameters
-        return self.get(url, parameters)
+        ret = self.get(url, parameters)
+        if ret.has_key("orders"):
+            r["orders"] = []
+            for o in ret["orders"]:
+                order = self._pri_one_order_data_process(o)
+                r["orders"].append(order)
+
+        ret["orders"] = r["orders"]
+        return ret
+
 
     def getRelationList(self, relations_type=None, counterparty=None, currency=None, maker=0):
         parameters = self.get_sign_info()
@@ -393,22 +512,14 @@ class Wallet(Account):
         #return url, parameters
         return self.get(url, parameters)
 
-    def getPaymentList(self, source_account=None, destination_account=None, exclude_failed=None, 
-        direction=None, results_per_page=None, page=None):
+    def getPaymentList(self, options=None):
         parameters = self.get_sign_info()
 
-        if source_account is not None:
-          parameters["source_account"] = source_account
-        if destination_account is not None:
-          parameters["destination_account"] = destination_account
-        if exclude_failed is not None:
-          parameters["exclude_failed"] = exclude_failed
-        if direction is not None:
-          parameters["direction"] = direction
-        if results_per_page is not None:
-          parameters["results_per_page"] = results_per_page
-        if page is not None:
-          parameters["page"] = page
+        _l = ("source_account", "destination_account", "exclude_failed", "direction", "results_per_page", "page")
+        if options is not None:
+            keys = list(set(_l).intersection(set(options.keys())))
+            for k in keys:
+                parameters[k] = options[k]
 
         url = 'accounts/{address}/payments'
         url = url.format(address=self.address)

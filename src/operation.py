@@ -22,7 +22,7 @@ from logger import logger
 from server import APIServer
 from serialize import JingtumBaseDecoder
 
-from account import path_convert, Amount
+from account import path_convert, Amount, Memo
 
 class JingtumOperException(Exception):
     pass
@@ -77,6 +77,7 @@ class PaymentOperation(Operation):
         self.dest_address = ""
         self.path_convert = path_convert
         self.path = None
+        self.memos = []
 
     def para_required(func):
         def _func(*args, **args2): 
@@ -105,12 +106,19 @@ class PaymentOperation(Operation):
         if self.path_convert.has_key(key):
             self.path = self.path_convert[key]
 
+    def setMemo(self, value):
+        self.memos.append(value)
+
+
     @para_required
     def oper(self):
         _payment = {}
         _payment["destination_amount"] = self.amt
         _payment["source_account"] = self.src_address
         _payment["destination_account"] = self.dest_address
+
+        if len(self.memos) > 0:
+            _payment["memos"] = self.memos
         if self.path is not None:
             _payment["paths"] = self.path
 
@@ -118,6 +126,8 @@ class PaymentOperation(Operation):
         _para["secret"] = self.src_secret
         _para["payment"] = _payment
         _para["client_resource_id"] = self.client_resource_id
+
+        
 
         if self.is_sync:
           url = 'accounts/{address}/payments?validated=true'

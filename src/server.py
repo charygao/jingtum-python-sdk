@@ -74,6 +74,24 @@ class APIServer(Server):
         super(APIServer, self).__init__()  
         pass
 
+    def getasyn(self, path, parameters=None, method="GET", callback=None, cb_para=None):
+        def get_cb(response):
+            callback(response.body, cb_para)
+
+        path = '/{version}/{path}'.format(version=self.api_version, path=path)
+        url = "%s%s"%(self.url, path)
+        if parameters:
+          parameters = {k:v for k,v in parameters.items() if v is not None}
+          for k, v in parameters.items():
+            if type(v) is bool:
+              parameters[k] = 'true' if v else 'false'
+          parameters = urllib.urlencode(parameters)
+          parameters = urllib.unquote(parameters)
+        print ("in _request:" + str(url))
+        print ("in _request:" + str(parameters))
+        unirest.get(url, headers={"Content-Type": "application/json;charset=utf-8"}, 
+                params=parameters, callback=get_cb)
+
     def get(self, path, parameters=None, method="GET"):
         path = '/{version}/{path}'.format(version=self.api_version, path=path)
         if parameters:
