@@ -22,7 +22,7 @@ from logger import logger
 from server import APIServer
 from serialize import JingtumBaseDecoder
 
-from account import path_convert, Amount
+from account import path_convert, Amount, Memo
 
 class JingtumOperException(Exception):
     pass
@@ -77,6 +77,7 @@ class PaymentOperation(Operation):
         self.dest_address = ""
         self.path_convert = path_convert
         self.path = None
+        self.memos = []
 
     def para_required(func):
         def _func(*args, **args2): 
@@ -105,12 +106,19 @@ class PaymentOperation(Operation):
         if self.path_convert.has_key(key):
             self.path = self.path_convert[key]
 
+    def setMemo(self, value):
+        self.memos.append(value)
+
+
     @para_required
     def oper(self):
         _payment = {}
         _payment["destination_amount"] = self.amt
         _payment["source_account"] = self.src_address
         _payment["destination_account"] = self.dest_address
+
+        if len(self.memos) > 0:
+            _payment["memos"] = self.memos
         if self.path is not None:
             _payment["paths"] = self.path
 
@@ -118,6 +126,8 @@ class PaymentOperation(Operation):
         _para["secret"] = self.src_secret
         _para["payment"] = _payment
         _para["client_resource_id"] = self.client_resource_id
+
+        
 
         if self.is_sync:
           url = 'accounts/{address}/payments?validated=true'
@@ -270,10 +280,64 @@ class CancelOrderOperation(Operation):
 
         return url, _para, "DELETE"
 
-class AddRelation(Operation):
+class SettingsOperation(Operation):
     def __init__(self, wallet):
-        super(AddRelation, self).__init__(wallet)
-        self.amt = {}
+        super(SettingsOperation, self).__init__(wallet)
+        self.settings = {}
+
+    def setDomain(self, domain):
+        self.settings["domain"] = domain
+
+    def setTransferRate(self, rate):
+        self.settings["transfer_rate"] = rate
+
+    def setPasswordSpent(self, b=False):
+        self.settings["password_spent"] = b
+
+    def setRequireDestinationTag(self, b=False):
+        self.settings["require_destination_tag"] = b
+
+    def setRequireAuthorization(self, b=False):
+        self.settings["require_authorization"] = b
+
+    def setDisallowSwt(self, b=False):
+        self.settings["disallow_swt"] = b
+
+    def setEmailHash(self, hash_id):
+        self.settings["email_hash"] = hash_id
+
+    def setWalletLocator(self, wallet_locator):
+        self.settings["wallet_locator"] = wallet_locator
+
+    def setWalletSize(self, wallet_size):
+        self.settings["wallet_size"] = wallet_size
+
+    def setMessageKey(self, message_key):
+        self.settings["message_key"] = message_key
+
+    def setRegularKey(self, regular_key):
+        self.settings["regular_key"] = regular_key
+
+    def setDisableMaster(self, b=False):
+        self.settings["disable_master"] = b
+
+    def oper(self):
+        _para = {}
+        _para["secret"] = self.src_secret
+        _para["settings"] = self.settings
+
+        if self.is_sync:
+          url = 'accounts/{address}/settings?validated=true'
+        else:
+          url = 'accounts/{address}/settings'
+        url = url.format(address=self.src_address)
+
+        return url, _para
+
+class RelationsOperation(Operation):
+    def __init__(self, wallet):
+        super(RelationsOperation, self).__init__(wallet)
+        self.amt = None
         self.counterparty = ""
         self.relation_type = ""
 
@@ -297,15 +361,14 @@ class AddRelation(Operation):
             
         return _func 
 
-    def addAmount(self, currency_type, currency_value, issuer=""):
-        self.amt["limit"] = str(currency_value)
-        self.amt["currency"] = str(currency_type)
-        self.amt["issuer"] = str(issuer)
+    def setAmount(self, amt):
+        amt.update(limit=amt.pop("value"))
+        self.amt = amt
 
     def setCounterparty(self, counterparty):
         self.counterparty = counterparty
 
-    def setRelationType(self, relation_type):
+    def setType(self, relation_type):
         self.relation_type = relation_type
 
     @para_required
@@ -324,9 +387,9 @@ class AddRelation(Operation):
 
         return url, _para
 
-class RemoveRelation(Operation):
+class RemoveRelationsOperation(Operation):
     def __init__(self, wallet):
-        super(RemoveRelation, self).__init__(wallet)
+        super(RemoveRelationsOperation, self).__init__(wallet)
         self.amt = {}
         self.counterparty = ""
         self.relation_type = ""
@@ -351,15 +414,14 @@ class RemoveRelation(Operation):
             
         return _func 
 
-    def addAmount(self, currency_type, currency_value, issuer=""):
-        self.amt["limit"] = str(currency_value)
-        self.amt["currency"] = str(currency_type)
-        self.amt["issuer"] = str(issuer)
+    def setAmount(self, amt):
+        amt.update(limit=amt.pop("value"))
+        self.amt = amt
 
     def setCounterparty(self, counterparty):
         self.counterparty = counterparty
 
-    def setRelationType(self, relation_type):
+    def setType(self, relation_type):
         self.relation_type = relation_type
 
     @para_required
@@ -375,18 +437,8 @@ class RemoveRelation(Operation):
 
         return url, _para, "DELETE"
 
-class WalletSettings(Operation):
-    def __init__(self, wallet):
-        super(WalletSettings, self).__init__(wallet)
 
-    def oper(self):
-        _para = {}
-        _para["secret"] = self.src_secret 
 
-        url = 'accounts/{address}/settings'
-        url = url.format(address=self.src_address)
-
-        return url, _para
 
 class AddTrustLine(Operation):
     def __init__(self, wallet):

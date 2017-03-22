@@ -32,6 +32,8 @@ class Config(object):
         TRAN_PERFIX = config["constant"]["tran_perfix"]
         TRUST_LIMIT = config["constant"]["trust_limit"]
         SIGN_PREFIX = config["constant"]["sign_perfix"]
+        MIN_ACTIVE_AMT = config["constant"]["min_active_amt"]
+        SDK_VERSION = config["constant"]["sdk_version"]
 
         issue_custom_tum = config["constant"]["issue_custom_tum"]
         query_issue = config["constant"]["query_issue"]

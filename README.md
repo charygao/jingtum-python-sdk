@@ -1,20 +1,27 @@
 # 井通PYTHON SDK
 
-jingtum_sdk python 正式版， 版本号0.9.15
+Jingtum_sdk python 1.0.1 正式版， 版本号0.9.20
 
-本SDK包括井通PYTHON语言的SDK文件库和例子
-其中，例子的执行需要申请帐号，具体请参见例子中的说明.
+本SDK包括井通PYTHON语言的SDK文件库和主要功能示例.
 
 ## 运行环境
 
-井通PYTHON SDK需要PYTHON 2.7以上版本。
+井通PYTHON SDK需要PYTHON 2.7版本和以下组件：
+ecdsa>=0.1
+six>=1.5.2
+websocket-client>=0.14.0
+unirest>=1.1.7
+backports.ssl-match-hostname
+poster>=0.8.1
 
 ## 安装PYTHON SDK
 
 首先确认系统安装了pip工具。如果没有，则需要安装pip工具，具体可以参考 
 (https://packaging.python.org/installing/)的说明。
 
-  pip install -i https://testpypi.python.org/pypi —pre jingtum_sdk_python
+  pip install jingtum-sdk
+pip会自动安装所需组件，如果需要，也可以手动安装，例如：
+pip install unirest
 
 ## 程序示例
 

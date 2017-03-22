@@ -1,12 +1,14 @@
 # -*- coding:utf-8 -*-
 import sys 
 import time
+import json
 sys.path.append("../")
 
 from jingtumsdk.server import APIServer, WebSocketServer, TumServer, Server
-from jingtumsdk.account import Wallet, FinGate, Amount
+from jingtumsdk.account import Wallet, FinGate, Amount, Memo
 from jingtumsdk.logger import logger
-from jingtumsdk.operation import PaymentOperation, OrderOperation, CancelOrderOperation
+from jingtumsdk.operation import PaymentOperation, OrderOperation, CancelOrderOperation, RelationsOperation, \
+    RemoveRelationsOperation, SettingsOperation
 
 
 def get_cfg_from_json(file_name="test_data.json"):
@@ -36,9 +38,8 @@ test_currency = str(cfg_data["DEV"]["fingate1"]["tum1"])
 fingate = FinGate()
 fingate.setMode(FinGate.DEVLOPMENT)
 fingate.setAccount(test_secret, test_address)
-fingate.setActivateAmount(100)
+fingate.setActivateAmount(25)
 
-# sys.exit(0)
 
 #tongtong testing
 fingate.setToken(custom)
@@ -89,6 +90,12 @@ class WalletClient(Wallet):
     def getorderbook_callback(self, res):
         logger.info("getorderbook_callback:::::" + str(res))
 
+    def addrelation_callback(self, res):
+        logger.info("addrelation_callback:::::" + str(res))
+
+    def removerelation_callback(self, res):
+        logger.info("removerelation_callback:::::" + str(res))
+
     def set_wallet_status(self, status):
         self.wallet_status = status
 
@@ -127,6 +134,12 @@ class WalletClient(Wallet):
             elif data.has_key("type") and data["type"] == "TrustSet":
                 logger.info("trust seted:" + str(data) + str(arg))
                 self.set_wallet_status(14)
+            elif data.has_key("type") and data["type"] == "SetRegularKey":
+                logger.info("regular key seted:" + str(data) + str(arg))
+                self.set_wallet_status(12)
+            elif data.has_key("type") and data["type"] == "RelationSet":
+                logger.info("relation seted:" + str(data) + str(arg))
+                self.set_wallet_status(15)
             else:
                 logger.info("do_socket_receive:" + str(data) + str(arg))
 
@@ -150,8 +163,12 @@ while 1:
             usd = PaymentOperation(master_unlimit_wallet)
             amt = Amount(10, "CNY", test_issuer)
             usd.setAmount(amt)
+            memo = Memo()
+            memo.setType("tstType")
+            memo.setData("tstData")
+            usd.setMemo(memo)
             usd.setDestAddress(my_wallet.address)
-            usd.setValidate(True)
+            #usd.setValidate(True)
             ret = usd.submit(callback=my_wallet.payment_callback)
             if ret is not None and ret.has_key("success") and ret["success"]:
                 my_wallet.set_last_resource_id(ret["client_resource_id"])
@@ -204,7 +221,60 @@ while 1:
             r = my_wallet.getTransactionList(options=options)
             logger.info("order_transaction_history test:" + str(r))
             my_wallet.set_wallet_status(10)
+        elif my_wallet.get_wallet_status() == 10:
+            so = SettingsOperation(my_wallet)
+            so.setDomain("abc.com")
+            so.setTransferRate(1)
+            so.setPasswordSpent(True)
+            so.setRequireDestinationTag(True)
+            so.setRequireAuthorization(True)
+            so.setDisallowSwt(True)
+            so.setEmailHash("hashhhhhhhhh")
+            so.setWalletLocator("walletlocatorrrrr")
+            so.setWalletSize(1)
+            so.setMessageKey("messagekeyyyyyyy")
+            #so.setRegularKey(test_ulimit_address)
+            #so.setDisableMaster(True)
 
+            r = so.submit()
+            logger.info("settings operation test:" + str(r))
+            my_wallet.set_wallet_status(11)
+        elif my_wallet.get_wallet_status() == 11:
+            time.sleep(5)
+            r = my_wallet.getSettings()
+            logger.info("get_settings test:" + str(r))
+            my_wallet.set_wallet_status(13)
+        elif my_wallet.get_wallet_status() == 13:
+            # add relation
+            ar = RelationsOperation(my_wallet)
+            amt = Amount(5, "CNY", test_issuer)
+            ar.setAmount(amt)
+            ar.setType("authorize")
+            ar.setCounterparty(test_address)
+            r = ar.submit(callback=my_wallet.addrelation_callback)
 
+            logger.info("add_relations test:" + str(r))
+            my_wallet.set_wallet_status(14)
+        elif my_wallet.get_wallet_status() == 15:
+            try:
+                r = my_wallet.getRelationList(relations_type="authorize", counterparty=test_address, 
+                    currency="CNY+"+test_issuer)
+                #r = my_wallet.getRelationList()
+                logger.info("get_relations test:" + str(r))
+            except Exception, e:
+                logger.error("get_relations:" + str(e)) 
+
+            try:
+                # remove relation
+                rr = RemoveRelationsOperation(my_wallet)
+                amt = Amount(5, "CNY", test_issuer)
+                rr.setAmount(amt)
+                rr.setType("authorize")
+                rr.setCounterparty(test_address)
+                r = rr.submit(callback=my_wallet.removerelation_callback)
+                logger.info("delete_relations test:" + str(r))
+            except Exception, e:
+                logger.error("delete_relations:" + str(e)) 
+            my_wallet.set_wallet_status(16)
     time.sleep(2)
     pass
