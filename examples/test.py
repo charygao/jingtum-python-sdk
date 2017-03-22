@@ -38,7 +38,7 @@ test_currency = str(cfg_data["DEV"]["fingate1"]["tum1"])
 fingate = FinGate()
 fingate.setMode(FinGate.DEVLOPMENT)
 fingate.setAccount(test_secret, test_address)
-fingate.setActivateAmount(25)
+fingate.setActivateAmount(30)
 
 
 #tongtong testing

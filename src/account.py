@@ -355,6 +355,7 @@ class FinGate(Account):
             return None
             
 
+
 class Wallet(Account):
     def __init__(self, secret, address):
         super(Wallet, self).__init__()
